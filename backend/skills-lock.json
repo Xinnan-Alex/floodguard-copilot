@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "developing-genkit-go": {
+      "source": "genkit-ai/skills",
+      "sourceType": "github",
+      "computedHash": "04b709aa344eb858e8518094afd62d239c28092289581bec0eb8d443816ab497"
+    }
+  }
+}
