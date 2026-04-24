@@ -114,6 +114,14 @@ function App() {
           triageCacheRef.current[activeItem.id] = enforced;
         }
         setTriageData(enforced);
+      } else if (activeItem.triageResult) {
+        // Use pre-populated auto-triage from backend webhook ingestion.
+        const preTriage: TriageResult = {
+          ...activeItem.triageResult,
+          status: dispatchResultsById[activeItem.id] ? 'dispatched' : (activeItem.triageResult.status || 'pending_approval'),
+        };
+        triageCacheRef.current[activeItem.id] = preTriage;
+        setTriageData(preTriage);
       } else {
         processItem(activeItem);
       }

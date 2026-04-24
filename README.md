@@ -15,6 +15,7 @@ The platform ensures that stressed victims speak to an empathetic human, while t
 - **The "Zero-Paperwork" Claim:** Once at a shelter, the dispatcher dictates the victim's identity. The backend queries **Vertex AI Search** via RAG against official MyDIGITAL blueprints and autonomously files the RM1,000 disaster relief claim.
 - **Dispatch Execution:** Approved actions are executed by a Dispatch Agent that generates confirmation IDs, routes to nearest units, and provides ETAs.
 - **WhatsApp Ingestion:** Real-time flood reports arrive via Twilio WhatsApp webhook, instantly appearing in the live feed.
+- **Incoming Call Ingestion:** Twilio Voice webhook events create call feed items and trigger background auto-triage so dispatchers can review calls as they arrive.
 
 ---
 
@@ -26,7 +27,7 @@ The platform ensures that stressed victims speak to an empathetic human, while t
 | **AI Orchestrator** | Firebase Genkit (Go SDK) — structured agentic workflows |
 | **RAG Grounding** | Vertex AI Search (Discovery Engine API) — government policy retrieval |
 | **Database** | Cloud Firestore (Native mode, `asia-southeast1`) — persistent feeds & response cache |
-| **WhatsApp** | Twilio WhatsApp Sandbox — real-time message ingestion |
+| **Communications** | Twilio WhatsApp Sandbox + Twilio Voice webhooks — incoming message and call ingestion |
 | **Backend** | Go 1.26 stdlib `net/http` — zero-framework, modular packages |
 | **Frontend** | React 19 + TypeScript + Vite — component-based architecture |
 | **Deployment** | Google Cloud Run (Docker multi-stage builds) |
@@ -67,8 +68,9 @@ graph TB
     end
 
     subgraph "External"
-        TWILIO["Twilio WhatsApp Sandbox"]
-        VICTIM["Flood Victim / WhatsApp User"]
+        TWILIOWA["Twilio WhatsApp Sandbox"]
+        TWILIOVOICE["Twilio Voice"]
+        VICTIM["Flood Victim / Caller"]
     end
 
     UI -- "HTTP POST /api/*" --> MUX
@@ -77,8 +79,10 @@ graph TB
     BF --> VAS
     BF --> GEMINI
     H -- "Read/Write feeds & cache" --> FS
-    VICTIM -- "WhatsApp Message" --> TWILIO
-    TWILIO -- "POST /api/webhook/whatsapp" --> MUX
+    VICTIM -- "WhatsApp Message" --> TWILIOWA
+    VICTIM -- "Phone Call" --> TWILIOVOICE
+    TWILIOWA -- "POST /api/webhook/whatsapp" --> MUX
+    TWILIOVOICE -- "POST /api/webhook/voice" --> MUX
 ```
 
 ---
@@ -89,6 +93,7 @@ graph TB
 sequenceDiagram
     participant V as Victim
     participant WA as WhatsApp / Twilio
+    participant VO as Voice / Twilio
     participant BE as Go Backend
     participant G as Gemini 2.5 Flash
     participant VAS as Vertex AI Search
@@ -99,6 +104,13 @@ sequenceDiagram
     WA->>BE: POST /api/webhook/whatsapp
     BE->>FS: Store FeedItem
     BE-->>WA: TwiML Response
+
+    V->>VO: Places emergency call
+    VO->>BE: POST /api/webhook/voice
+    BE->>FS: Store call FeedItem
+    BE->>G: Auto-triage transcript or speech result
+    G-->>BE: location, urgency, needs
+    BE->>FS: Save pre-triaged call result
 
     UI->>BE: GET /api/feeds (polling)
     BE->>FS: Query feeds since last ID
@@ -165,6 +177,7 @@ graph LR
 | `POST` | `/api/claim` | Process disaster relief claims with RAG grounding |
 | `POST` | `/api/dispatch` | Execute approved dispatch or claim filing action |
 | `POST` | `/api/webhook/whatsapp` | Receive incoming WhatsApp messages via Twilio |
+| `POST` | `/api/webhook/voice` | Receive incoming Twilio Voice call events and auto-triage them |
 | `GET`  | `/api/feeds` | Poll for new feed items (`?since=<id>` for incremental) |
 
 ---
@@ -175,6 +188,7 @@ graph LR
 2. **bureaucracy-agent-flow** — Victim data → Vertex AI Search for NADMA policy (RAG) → Gemini decides eligibility & amount → Auto-files claim.
 3. **dispatch-agent-flow** — Approved action → Gemini generates `{confirmation_id, routed_to, eta_minutes, summary}` → Execution confirmed.
 4. **WhatsApp webhook** — Twilio delivers messages → stored in Firestore → frontend polls for new feeds every 3 seconds.
+5. **Voice webhook** — Twilio Voice delivers call events or speech results → stored as call feed items → auto-triaged in the background for dispatcher review.
 
 ---
 
@@ -239,7 +253,7 @@ Cloud Run auto-authenticates with Firestore (same project) — no credentials fi
 ## 📁 Project Structure
 
 ```
-PROJECT2030/
+floodguard-copilot/
 ├── backend/
 │   ├── main.go                         # Entry point: Firestore init, Genkit init, server start
 │   ├── Dockerfile                      # Multi-stage Go build for Cloud Run
@@ -248,7 +262,7 @@ PROJECT2030/
 │       ├── flows/
 │       │   └── register.go             # Genkit AI flows (whisper, bureaucracy, dispatch)
 │       ├── handler/
-│       │   └── handler.go              # HTTP handlers for all 6 API endpoints
+│       │   └── handler.go              # HTTP handlers for all 7 API endpoints, including WhatsApp and voice webhooks
 │       ├── middleware/
 │       │   └── cors.go                 # CORS middleware (stdlib http.Handler)
 │       ├── models/

@@ -41,6 +41,7 @@ cd frontend && gcloud run deploy floodguard-frontend --source . --region asia-so
 | `PORT` | `3400` (local) / `8080` (Cloud Run) | Backend listen port |
 | `VERTEX_SEARCH_DATASTORE` | *(optional)* | Discovery Engine datastore ID — falls back to hardcoded NADMA policy |
 | `VITE_BACKEND_URL` | `http://localhost:3400` | Frontend → backend URL |
+| `TWILIO_AUTH_TOKEN` | *(optional for local dev)* | Validates Twilio webhook signatures for WhatsApp and voice webhooks |
 
 There are no `.env` files. Variables are read via `os.Getenv()` (Go) and `import.meta.env` (Vite).
 
@@ -61,7 +62,7 @@ frontend/src/
 backend/
   main.go                        # Firestore init, Genkit init, http.ServeMux + CORS
   internal/
-    handler/handler.go           # All 6 HTTP handlers
+    handler/handler.go           # All 7 HTTP handlers (incl. voice webhook)
     flows/register.go            # Genkit flows (whisper, bureaucracy, dispatch)
     models/models.go             # Shared types (FeedItem, request/response structs)
     store/feeds.go               # Firestore feeds collection (add + getsSince)
@@ -71,6 +72,8 @@ backend/
 ```
 
 Frontend polls `GET /api/feeds?since={lastID}` every 3 seconds. All other calls are `POST` JSON.
+
+Incoming call support is handled through `POST /api/webhook/voice`, which stores a `call` feed item and runs background auto-triage when transcript or speech result data is present.
 
 ---
 
@@ -84,7 +87,8 @@ All defined in [backend/internal/handler/handler.go](backend/internal/handler/ha
 | `POST` | `/api/triage` | `transcript` | Analyze WhatsApp message/image |
 | `POST` | `/api/claim` | `transcript` / `victim_info` | RAG-grounded relief claim filing |
 | `POST` | `/api/dispatch` | `action_type, location, urgency, needs, amount, reasoning` | Execute dispatch or claim |
-| `POST` | `/api/webhook/whatsapp` | Twilio form data | Ingest WhatsApp messages |
+| `POST` | `/api/webhook/whatsapp` | Twilio form data | Ingest WhatsApp messages + auto-triage |
+| `POST` | `/api/webhook/voice` | Twilio form data | Ingest voice call events + auto-triage |
 | `GET` | `/api/feeds` | `?since={id}` | Incremental feed polling |
 
 ---

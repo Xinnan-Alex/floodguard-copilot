@@ -66,3 +66,13 @@ func (fs *FeedStore) GetSince(ctx context.Context, sinceID string) []models.Feed
 	}
 	return items
 }
+
+// UpdateTriage patches a feed item's triageResult field in Firestore.
+func (fs *FeedStore) UpdateTriage(ctx context.Context, feedID string, triage map[string]interface{}) {
+	_, err := fs.col.Doc(feedID).Update(ctx, []firestore.Update{
+		{Path: "triageResult", Value: triage},
+	})
+	if err != nil {
+		log.Printf("Firestore triage update error for %s: %v", feedID, err)
+	}
+}

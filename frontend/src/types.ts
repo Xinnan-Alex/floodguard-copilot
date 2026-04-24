@@ -9,6 +9,7 @@ export interface FeedItem {
   imageMimeType?: string;
   mediaUrl?: string;
   from?: string;
+  triageResult?: TriageResult;
 }
 
 export interface TriageResult {

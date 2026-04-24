@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -45,6 +46,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/claim", h.Claim)
 	mux.HandleFunc("POST /api/dispatch", h.Dispatch)
 	mux.HandleFunc("POST /api/webhook/whatsapp", h.WhatsAppWebhook)
+	mux.HandleFunc("POST /api/webhook/voice", h.VoiceWebhook)
 	mux.HandleFunc("GET /api/feeds", h.Feeds)
 }
 
@@ -231,6 +233,91 @@ func (h *Handler) WhatsAppWebhook(w http.ResponseWriter, r *http.Request) {
 
 	h.feedStore.Add(r.Context(), item)
 	log.Printf("WhatsApp received from %s: %s", from, body)
+
+	// Auto-triage: run whisper flow in background so feed item arrives pre-triaged.
+	if item.FullData != "" {
+		go func(feedID, data string) {
+			ctx := context.Background()
+			result, err := h.whisper(ctx, data)
+			if err != nil {
+				log.Printf("Auto-triage failed for %s: %v", feedID, err)
+				return
+			}
+			h.feedStore.UpdateTriage(ctx, feedID, result)
+			log.Printf("Auto-triage completed for %s", feedID)
+		}(item.ID, item.FullData)
+	}
+
+	w.Header().Set("Content-Type", "text/xml")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`)
+}
+
+// VoiceWebhook handles POST /api/webhook/voice — receives incoming call events from Twilio Voice.
+func (h *Handler) VoiceWebhook(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form data", http.StatusBadRequest)
+		return
+	}
+
+	authToken := os.Getenv("TWILIO_AUTH_TOKEN")
+	if !validateTwilioSignature(r, authToken) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	from := r.FormValue("From")
+	callStatus := r.FormValue("CallStatus")
+	callSID := r.FormValue("CallSid")
+	speechResult := r.FormValue("SpeechResult")
+	recordingURL := r.FormValue("RecordingUrl")
+
+	preview := "Incoming call"
+	if from != "" {
+		preview = "Incoming call from " + from
+	}
+	if speechResult != "" {
+		runes := []rune(speechResult)
+		if len(runes) > 50 {
+			preview = string(runes[:50]) + "..."
+		} else {
+			preview = speechResult
+		}
+	}
+
+	fullData := fmt.Sprintf("Voice call webhook event\nFrom: %s\nStatus: %s\nCallSid: %s", from, callStatus, callSID)
+	if speechResult != "" {
+		fullData += "\nTranscript: " + speechResult
+	}
+	if recordingURL != "" {
+		fullData += "\nRecording: " + recordingURL
+	}
+
+	item := models.FeedItem{
+		ID:        fmt.Sprintf("call-%d-%s", time.Now().UnixMilli(), randomHex(4)),
+		Type:      "call",
+		Timestamp: time.Now().Format("3:04 PM"),
+		Preview:   preview,
+		FullData:  fullData,
+		From:      from,
+	}
+
+	h.feedStore.Add(r.Context(), item)
+	log.Printf("Voice webhook received from %s status=%s sid=%s", from, callStatus, callSID)
+
+	// Auto-triage: run whisper flow in background so feed item arrives pre-triaged.
+	if item.FullData != "" {
+		go func(feedID, data string) {
+			ctx := context.Background()
+			result, err := h.whisper(ctx, data)
+			if err != nil {
+				log.Printf("Auto-triage failed for %s: %v", feedID, err)
+				return
+			}
+			h.feedStore.UpdateTriage(ctx, feedID, result)
+			log.Printf("Auto-triage completed for %s", feedID)
+		}(item.ID, item.FullData)
+	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(http.StatusOK)

@@ -3,14 +3,15 @@ package models
 
 // FeedItem represents an incoming message (WhatsApp, call, etc.).
 type FeedItem struct {
-	ID        string `json:"id" firestore:"id"`
-	Type      string `json:"type" firestore:"type"`
-	Timestamp string `json:"timestamp" firestore:"timestamp"`
-	Preview   string `json:"preview" firestore:"preview"`
-	FullData  string `json:"fullData" firestore:"fullData"`
-	MediaURL  string `json:"mediaUrl,omitempty" firestore:"mediaUrl,omitempty"`
-	From      string `json:"from,omitempty" firestore:"from,omitempty"`
-	CreatedAt int64  `json:"createdAt" firestore:"createdAt"`
+	ID           string                 `json:"id" firestore:"id"`
+	Type         string                 `json:"type" firestore:"type"`
+	Timestamp    string                 `json:"timestamp" firestore:"timestamp"`
+	Preview      string                 `json:"preview" firestore:"preview"`
+	FullData     string                 `json:"fullData" firestore:"fullData"`
+	MediaURL     string                 `json:"mediaUrl,omitempty" firestore:"mediaUrl,omitempty"`
+	From         string                 `json:"from,omitempty" firestore:"from,omitempty"`
+	CreatedAt    int64                  `json:"createdAt" firestore:"createdAt"`
+	TriageResult map[string]interface{} `json:"triageResult,omitempty" firestore:"triageResult,omitempty"`
 }
 
 // TranscriptRequest is the request body for /api/whisper and /api/triage.
